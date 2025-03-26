@@ -70,7 +70,57 @@ int bufferIndex = 0;
 unsigned long lastStatusUpdate = 0;
 const unsigned long STATUS_UPDATE_INTERVAL = 1000;  // 状态栏更新间隔（1秒）
 
-// HTML页面模板
+// HTML页面模板 - 文件列表页面
+const char* fileListTemplate = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ADS1110 Data Files</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: #f0f0f0; padding: 20px; margin: 10px 0; border-radius: 5px; }
+        .file-list { list-style: none; padding: 0; }
+        .file-item { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        .button { 
+            background: #4CAF50; 
+            color: white; 
+            padding: 8px 15px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            text-decoration: none;
+        }
+        .button:hover { background: #45a049; }
+        .back-button {
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="button back-button">Back to Monitor</a>
+        <h1>Recorded Data Files</h1>
+        <div class="card">
+            <ul class="file-list">
+                %s
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+)rawliteral";
+
+// 修改主页模板，添加查看文件列表的按钮
 const char* htmlTemplate = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -118,7 +168,8 @@ const char* htmlTemplate = R"rawliteral(
         </div>
         <div class="card">
             <h2>Operations</h2>
-            <a href="/download" class="button">Download Data</a>
+            <a href="/files" class="button">View All Files</a>
+            <a href="/download" class="button">Download Current</a>
             <a href="/refresh" class="button">Refresh</a>
         </div>
     </div>
@@ -323,26 +374,61 @@ void handleRoot() {
     server.send(200, "text/html", html);
 }
 
-// 处理数据下载请求
+// 处理文件列表请求
+void handleFileList() {
+    File root = SD.open("/");
+    if (!root) {
+        server.send(500, "text/plain", "Failed to open SD card root directory");
+        return;
+    }
+
+    String fileList = "";
+    File file = root.openNextFile();
+    while (file) {
+        if (!file.isDirectory() && String(file.name()).endsWith(".csv")) {
+            fileList += "<li class='file-item'>";
+            fileList += "<span>" + String(file.name()) + " (" + String(file.size() / 1024.0, 1) + " KB)</span>";
+            fileList += "<a href='/download?file=" + String(file.name()) + "' class='button'>Download</a>";
+            fileList += "</li>";
+        }
+        file = root.openNextFile();
+    }
+    root.close();
+
+    if (fileList.length() == 0) {
+        fileList = "<li class='file-item'><span>No data files found</span></li>";
+    }
+
+    char html[4096];  // 增加缓冲区大小以容纳更多文件
+    snprintf(html, sizeof(html), fileListTemplate, fileList.c_str());
+    server.send(200, "text/html", html);
+}
+
+// 修改下载处理函数以支持指定文件下载
 void handleDownload() {
-    if (lastRecordedFile.length() == 0) {
-        server.send(404, "text/plain", "No recording has been made yet");
+    String fileName = server.hasArg("file") ? server.arg("file") : lastRecordedFile;
+    
+    if (fileName.length() == 0) {
+        server.send(404, "text/plain", "No file specified");
         return;
     }
     
-    if (!SD.exists(lastRecordedFile.c_str())) {
+    if (!fileName.startsWith("/")) {
+        fileName = "/" + fileName;
+    }
+    
+    if (!SD.exists(fileName)) {
         server.send(404, "text/plain", "File not found");
         return;
     }
     
-    File file = SD.open(lastRecordedFile.c_str(), FILE_READ);
+    File file = SD.open(fileName, FILE_READ);
     if (!file) {
         server.send(500, "text/plain", "Error opening file");
         return;
     }
     
-    // 从文件名中提取日期时间部分作为下载文件名
-    String downloadFileName = lastRecordedFile.substring(1); // 去掉开头的'/'
+    String downloadFileName = fileName.startsWith("/") ? fileName.substring(1) : fileName;
     
     server.sendHeader("Content-Type", "text/csv");
     server.sendHeader("Content-Disposition", "attachment; filename=" + downloadFileName);
@@ -373,6 +459,7 @@ void handleAPI() {
 
 void setupWebServer() {
     server.on("/", handleRoot);
+    server.on("/files", handleFileList);  // 添加新的路由
     server.on("/download", handleDownload);
     server.on("/refresh", handleRefresh);
     server.on("/api", handleAPI);
