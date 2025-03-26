@@ -235,23 +235,24 @@ void syncTimeWithNTP() {
     Serial.println("Time synchronized with NTP (Brisbane).");
 }
 
-// SD卡错误处理函数
+// 修改SD卡错误处理函数
 bool checkSDCard() {
     if (!SD.begin()) {
         Serial.println("SD Card initialization failed!");
+        sdCardReady = false;
         return false;
     }
     
-    // 检查SD卡类型和容量
     uint8_t cardType = SD.cardType();
     if (cardType == CARD_NONE) {
         Serial.println("No SD card attached!");
+        sdCardReady = false;
         return false;
     }
-    
+
     uint64_t cardSize = SD.cardSize() / (1024 * 1024);
     Serial.printf("SD Card Type: %d, Size: %lluMB\n", cardType, cardSize);
-    
+    sdCardReady = true;
     return true;
 }
 
@@ -274,55 +275,45 @@ void addToBuffer(const char* data) {
     bufferIndex += dataLen;
 }
 
-// 新增：创建新的文件名
-void createNewFileName() {
+// 修改文件创建函数
+bool createNewDataFile() {
+    if (!sdCardReady) {
+        Serial.println("Error: SD card not ready");
+        return false;
+    }
+
+    // 获取当前时间
     M5.Rtc.GetTime(&RTCtime);
     M5.Rtc.GetDate(&RTCdate);
     
-    // 添加随机数以确保文件名唯一
-    int randomNum = random(1000);
-    
-    sprintf(fileName, "/ads_%04d%02d%02d_%02d%02d%02d_%03d.csv",
+    // 生成文件名
+    sprintf(fileName, "/ads_%04d%02d%02d_%02d%02d%02d_%03d.csv", 
             RTCdate.Year, RTCdate.Month, RTCdate.Date,
-            RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds, randomNum);
+            RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds,
+            millis() % 1000);
     
-    Serial.print("New file name created: ");
-    Serial.println(fileName);
-}
+    Serial.printf("Creating new file: %s\n", fileName);
 
-// 新增：打开数据文件函数
-bool openDataFile() {
-    // 关闭已打开的文件
-    if (dataFile) {
-        flushBuffer();
-        dataFile.close();
+    // 检查文件是否已存在
+    if (SD.exists(fileName)) {
+        Serial.println("Warning: File already exists, will append data");
     }
-    
-    // 重新初始化SD卡
-    if (!checkSDCard()) {
-        Serial.println("SD Card initialization failed!");
-        sdCardReady = false;
-        return false;
-    }
-    
-    // 创建新文件名
-    createNewFileName();
-    lastRecordedFile = String(fileName);  // 保存新创建的文件名
-    
-    // 尝试创建新文件
+
+    // 尝试打开文件
     dataFile = SD.open(fileName, FILE_WRITE);
     if (!dataFile) {
-        Serial.println("Failed to create new file!");
-        Serial.print("File name: ");
-        Serial.println(fileName);
+        Serial.println("Error: Failed to create file");
         return false;
     }
-    
-    // 写入CSV头部
-    dataFile.println("Timestamp, Voltage (mV)");
-    dataFile.flush();
-    
+
+    // 写入CSV头
+    if (dataFile.size() == 0) {
+        dataFile.println("Timestamp,Voltage(mV),Duration(s)");
+        dataFile.flush();
+    }
+
     Serial.println("File created and opened successfully for recording.");
+    lastRecordedFile = String(fileName);
     return true;
 }
 
@@ -374,31 +365,81 @@ void handleRoot() {
     server.send(200, "text/html", html);
 }
 
-// 处理文件列表请求
-void handleFileList() {
-    File root = SD.open("/");
-    if (!root) {
-        server.send(500, "text/plain", "Failed to open SD card root directory");
-        return;
+// 修改文件列表处理函数
+String getFilesList() {
+    String fileList = "";
+    if (!sdCardReady) {
+        Serial.println("Error: SD card not ready when getting file list");
+        return "Error: SD card not ready";
     }
 
-    String fileList = "";
+    File root = SD.open("/");
+    if (!root) {
+        Serial.println("Error: Failed to open root directory");
+        return "Error: Failed to open directory";
+    }
+
     File file = root.openNextFile();
     while (file) {
         if (!file.isDirectory() && String(file.name()).endsWith(".csv")) {
+            String fileName = String(file.name());
+            unsigned long fileSize = file.size();
+            String fileSizeStr = String(fileSize / 1024.0, 1) + " KB";
+            
             fileList += "<li class='file-item'>";
-            fileList += "<span>" + String(file.name()) + " (" + String(file.size() / 1024.0, 1) + " KB)</span>";
-            fileList += "<a href='/download?file=" + String(file.name()) + "' class='button'>Download</a>";
+            fileList += "<span>" + fileName + " (" + fileSizeStr + ")</span>";
+            fileList += "<a href='/download?file=" + fileName + "' class='button'>Download</a>";
             fileList += "</li>";
         }
         file = root.openNextFile();
     }
-    root.close();
-
+    
     if (fileList.length() == 0) {
-        fileList = "<li class='file-item'><span>No data files found</span></li>";
+        fileList = "<li>No data files found</li>";
     }
 
+    root.close();
+    return fileList;
+}
+
+// 修改数据记录函数
+void recordData(float voltage) {
+    if (!recording || !sdCardReady || !dataFile) {
+        return;
+    }
+
+    unsigned long duration = (millis() - startTime) / 1000;
+    M5.Rtc.GetTime(&RTCtime);
+    M5.Rtc.GetDate(&RTCdate);
+    
+    // 格式化时间戳
+    sprintf(str_buffer, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+            RTCdate.Year, RTCdate.Month, RTCdate.Date,
+            RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds,
+            millis() % 1000);
+    
+    // 更新最新数据
+    lastVoltage = voltage;
+    lastTimestamp = String(str_buffer);
+    lastDuration = duration;
+
+    // 写入数据到文件
+    String dataString = String(str_buffer) + "," + String(voltage, 6) + "," + String(duration);
+    if (dataFile) {
+        if (dataFile.println(dataString)) {
+            dataFile.flush();
+            Serial.println("Timestamp: " + String(str_buffer) + " | Voltage: " + String(voltage, 6) + " mV | Duration: " + String(duration));
+        } else {
+            Serial.println("Error: Failed to write data to file");
+        }
+    } else {
+        Serial.println("Error: Data file not open");
+    }
+}
+
+// 处理文件列表请求
+void handleFileList() {
+    String fileList = getFilesList();
     char html[4096];  // 增加缓冲区大小以容纳更多文件
     snprintf(html, sizeof(html), fileListTemplate, fileList.c_str());
     server.send(200, "text/html", html);
@@ -552,7 +593,7 @@ void loop(void) {
         if (!recording && point.y >= BUTTON_AREA_Y && point.y <= BUTTON_AREA_Y + BTN_HEIGHT) {
             if (point.x >= START_BTN_X && point.x <= START_BTN_X + BTN_WIDTH) {
                 // 尝试打开文件
-                if (!openDataFile()) {
+                if (!createNewDataFile()) {
                     Serial.println("Failed to open file for recording!");
                     M5.Lcd.fillScreen(RED);
                     M5.Lcd.setTextColor(WHITE);
@@ -629,9 +670,7 @@ void loop(void) {
             Serial.println(duration);
 
             // 写入数据到SD卡
-            char dataLine[100];
-            sprintf(dataLine, "%s, %.6f\n", str_buffer, voltage);
-            addToBuffer(dataLine);
+            recordData(voltage);
             
             // 每100条数据强制刷新一次
             if (bufferIndex > SD_BUFFER_SIZE * 0.8) {
