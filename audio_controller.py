@@ -26,6 +26,9 @@ class AudioManager:
         # 初始化日志文件 / Initialize log file
         self.log_file = os.path.join(self.logs_dir, f"audio_log_{datetime.now().strftime('%Y%m%d')}.csv")
         self.initialize_log_file()
+        
+        self.recording_event = threading.Event()  # 添加事件控制
+        self.playback_event = threading.Event()
     
     def initialize_log_file(self):
         """初始化CSV日志文件 / Initialize CSV log file"""
@@ -33,28 +36,37 @@ class AudioManager:
             with open(self.log_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    'Timestamp',
-                    'Operation',
+                    'StartTime',
+                    'EndTime',
                     'Frequency',
                     'Duration',
+                    'Waveform',
                     'Filename',
-                    'Status',
-                    'Error'
+                    'Status'
                 ])
 
-    def log_operation(self, operation, frequency=None, duration=None, filename=None, status="Success", error=None):
+    def get_timestamp(self):
+        """获取格式化的时间戳 / Get formatted timestamp"""
+        now = datetime.now()
+        return now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    def log_operation(self, frequency, duration, waveform, filename, status="Success"):
         """记录操作到CSV / Log operation to CSV"""
-        with open(self.log_file, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                operation,
-                frequency if frequency is not None else "",
-                duration if duration is not None else "",
-                filename if filename is not None else "",
-                status,
-                error if error is not None else ""
-            ])
+        try:
+            end_time = self.get_timestamp()
+            with open(self.log_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    self.start_time,
+                    end_time,
+                    "{:.1f}".format(frequency),
+                    "{:.1f}".format(duration),
+                    waveform,
+                    filename,
+                    status
+                ])
+        except Exception as e:
+            print(f"Warning: Could not write to log file: {str(e)}")
 
     def generate_waveform(self, frequency, duration, waveform='sine', amplitude=0.5):
         """生成指定波形的信号 / Generate signal with specified waveform"""
@@ -78,92 +90,106 @@ class AudioManager:
         try:
             tone = self.generate_waveform(frequency, duration, waveform)
             self.playing = True
+            
+            # 通知录制线程准备就绪
+            self.playback_event.set()
+            
+            # 等待录制线程准备完成
+            self.recording_event.wait()
+            
+            # 开始播放
             sd.play(tone, self.sample_rate)
-            sd.wait()  # 等待播放完成 / Wait for playback to complete
+            sd.wait()
             self.playing = False
-            self.log_operation("Play", frequency=frequency, duration=duration)
             
         except Exception as e:
-            error_msg = str(e)
-            print(f"Error playing sound: {error_msg}")
-            self.log_operation("Play", frequency=frequency, duration=duration, 
-                             status="Failed", error=error_msg)
+            print(f"Error playing sound: {e}")
             self.playing = False
     
     def record_audio(self, duration, filename):
         """录制音频 / Record audio"""
         try:
+            # 等待播放准备就绪
+            self.playback_event.wait()
+            
             print(f"Starting recording, duration: {duration} seconds")
             self.recording = True
             
-            # 录制音频 / Record audio
             recording = sd.rec(
                 int(duration * self.sample_rate),
                 samplerate=self.sample_rate,
                 channels=1
             )
-            sd.wait()  # 等待录制完成 / Wait for recording to complete
+            
+            # 通知播放线程可以开始了
+            self.recording_event.set()
+            
+            # 等待录制完成
+            sd.wait()
             self.recording = False
             
-            # 完整的文件路径 / Complete file path
             filepath = os.path.join(self.recordings_dir, filename)
             
-            # 保存录音 / Save recording
+            # 保存录音
             with wave.open(filepath, 'wb') as wf:
-                wf.setnchannels(1)  # 单声道 / Mono channel
-                wf.setsampwidth(2)  # 2字节采样宽度 / 2-byte sample width
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
                 wf.setframerate(self.sample_rate)
                 wf.writeframes((recording * 32767).astype(np.int16).tobytes())
             
             print(f"Recording completed, file saved: {filepath}")
-            self.log_operation("Record", duration=duration, filename=filename)
             
         except Exception as e:
-            error_msg = str(e)
-            print(f"Error recording audio: {error_msg}")
-            self.log_operation("Record", duration=duration, filename=filename, 
-                             status="Failed", error=error_msg)
+            print(f"Error recording audio: {e}")
             self.recording = False
+        finally:
+            # 重置事件状态
+            self.recording_event.clear()
+            self.playback_event.clear()
     
     def play_and_record(self, frequency, duration, waveform='sine'):
         """同时播放和录制音频 / Simultaneously play and record audio"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"audio_record_{timestamp}_{frequency}Hz_{waveform}.wav"
-        
         try:
-            # 创建录制线程 / Create recording thread
+            # 记录开始时间
+            self.start_time = self.get_timestamp()
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = "audio_record_{}_{:.1f}Hz_{}.wav".format(
+                timestamp, frequency, waveform)
+            
+            # 重置事件状态
+            self.recording_event.clear()
+            self.playback_event.clear()
+            
+            # 创建录制线程
             record_thread = threading.Thread(
                 target=self.record_audio,
                 args=(duration, filename)
             )
             
-            # 创建播放线程 / Create playback thread
+            # 创建播放线程
             play_thread = threading.Thread(
                 target=self.play_tone,
                 args=(frequency, duration, waveform)
             )
             
-            # 启动录制 / Start recording
+            # 启动两个线程
             record_thread.start()
-            time.sleep(0.5)  # 等待录制启动 / Wait for recording to start
-            
-            # 启动播放 / Start playback
             play_thread.start()
             
-            # 等待两个线程完成 / Wait for both threads to complete
+            # 等待两个线程完成
             play_thread.join()
             record_thread.join()
             
-            self.log_operation("PlayAndRecord", frequency=frequency, 
-                             duration=f"play:{duration},waveform:{waveform}", 
-                             filename=filename)
+            # 记录操作日志
+            self.log_operation(frequency, duration, waveform, filename)
             
         except Exception as e:
-            error_msg = str(e)
-            print(f"Error during play and record: {error_msg}")
-            self.log_operation("PlayAndRecord", frequency=frequency, 
-                             duration=f"play:{duration},waveform:{waveform}", 
-                             filename=filename, status="Failed", error=error_msg)
+            print(f"Error during play and record: {e}")
+            try:
+                self.log_operation(frequency, duration, waveform, filename, f"Failed: {str(e)}")
+            except:
+                print("Could not log error to file")
 
 def main():
     # 创建音频管理器实例 / Create audio manager instance
