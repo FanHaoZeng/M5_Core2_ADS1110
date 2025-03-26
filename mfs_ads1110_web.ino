@@ -46,6 +46,76 @@ unsigned long lastDuration = 0;
 #define DATA_AREA_HEIGHT 120
 #define BUTTON_AREA_Y 180
 
+// 按钮区域定义
+#define START_BTN_X 20
+#define STOP_BTN_X 200
+#define BTN_WIDTH 100
+#define BTN_HEIGHT 50
+
+// SD卡状态
+bool sdCardReady = false;
+
+// 清除按钮区域函数
+void clearButtonArea(int x, int y) {
+    M5.Lcd.fillRect(x, y, BTN_WIDTH, BTN_HEIGHT, BLACK);
+}
+
+// 连接Wi-Fi函数
+void connectWiFi() {
+    Serial.print("Connecting to WiFi");
+    WiFi.begin(ssid, password);
+    int retryCount = 0;
+    while (WiFi.status() != WL_CONNECTED && retryCount < 20) {
+        delay(500);
+        Serial.print(".");
+        retryCount++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println(" Connected!");
+    } else {
+        Serial.println(" Failed to connect!");
+    }
+}
+
+// NTP时间同步函数
+void syncTimeWithNTP() {
+    timeClient.begin();
+    while (!timeClient.update()) {
+        timeClient.forceUpdate();
+    }
+    unsigned long epochTime = timeClient.getEpochTime();
+    struct tm *ptm = gmtime((time_t *)&epochTime);
+    RTCdate.Year = ptm->tm_year + 1900;
+    RTCdate.Month = ptm->tm_mon + 1;
+    RTCdate.Date = ptm->tm_mday;
+    RTCtime.Hours = ptm->tm_hour;
+    RTCtime.Minutes = ptm->tm_min;
+    RTCtime.Seconds = ptm->tm_sec;
+
+    M5.Rtc.SetTime(&RTCtime);
+    M5.Rtc.SetDate(&RTCdate);
+    Serial.println("Time synchronized with NTP (Brisbane).");
+}
+
+// SD卡检查函数
+bool checkSDCard() {
+    if (!SD.begin()) {
+        Serial.println("SD Card initialization failed!");
+        return false;
+    }
+    
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE) {
+        Serial.println("No SD card attached!");
+        return false;
+    }
+    
+    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD Card Type: %d, Size: %lluMB\n", cardType, cardSize);
+    
+    return true;
+}
+
 // HTML页面模板
 const char* htmlTemplate = R"rawliteral(
 <!DOCTYPE html>
@@ -171,8 +241,6 @@ void setupWebServer() {
     Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
 }
 
-// ... [保留原有的其他函数] ...
-
 void setup(void) {
     M5.begin();
     M5.Lcd.setTextSize(2);
@@ -214,7 +282,45 @@ void loop(void) {
     // 处理Web请求
     server.handleClient();
     
-    // ... [保留原有的其他loop代码] ...
+    unsigned long currentMillis = millis();
+    
+    // 检查触摸事件
+    if (M5.Touch.ispressed()) {
+        TouchPoint_t point = M5.Touch.getPressPoint();
+        
+        // 检查START按钮区域
+        if (!recording && point.y >= BUTTON_AREA_Y && point.y <= BUTTON_AREA_Y + BTN_HEIGHT) {
+            if (point.x >= START_BTN_X && point.x <= START_BTN_X + BTN_WIDTH) {
+                recording = true;
+                startTime = millis();
+                clearButtonArea(START_BTN_X, BUTTON_AREA_Y);
+                drawStopButton();
+                
+                // 创建新数据文件
+                M5.Rtc.GetTime(&RTCtime);
+                M5.Rtc.GetDate(&RTCdate);
+                sprintf(fileName, "/ads1110_data_%04d%02d%02d_%02d%02d%02d.csv",
+                        RTCdate.Year, RTCdate.Month, RTCdate.Date,
+                        RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds);
+                dataFile = SD.open(fileName, FILE_WRITE);
+                if (dataFile) {
+                    dataFile.println("Timestamp,Voltage(mV),Duration(s)");
+                    dataFile.flush();
+                }
+            }
+        }
+        // 检查STOP按钮区域
+        else if (recording && point.y >= BUTTON_AREA_Y && point.y <= BUTTON_AREA_Y + BTN_HEIGHT) {
+            if (point.x >= STOP_BTN_X && point.x <= STOP_BTN_X + BTN_WIDTH) {
+                recording = false;
+                if (dataFile) {
+                    dataFile.close();
+                }
+                clearButtonArea(STOP_BTN_X, BUTTON_AREA_Y);
+                drawStartButton();
+            }
+        }
+    }
 
     // 仅在录制状态下更新数据
     if (recording && sdCardReady) {
@@ -237,7 +343,22 @@ void loop(void) {
             lastTimestamp = String(str_buffer);
             lastDuration = duration;
 
-            // ... [保留原有的其他更新代码] ...
+            // 更新显示
+            M5.Lcd.fillRect(0, DATA_AREA_Y, 320, DATA_AREA_HEIGHT, BLACK);
+            M5.Lcd.setTextColor(WHITE);
+            M5.Lcd.setTextSize(2);
+            M5.Lcd.setCursor(10, DATA_AREA_Y + 10);
+            M5.Lcd.printf("Voltage: %.3f mV", voltage);
+            M5.Lcd.setCursor(10, DATA_AREA_Y + 40);
+            M5.Lcd.printf("Time: %02d:%02d:%02d", 
+                duration / 3600, (duration % 3600) / 60, duration % 60);
+
+            // 写入数据到SD卡
+            sprintf(str_buffer, "%s,%.3f,%lu\n", lastTimestamp.c_str(), voltage, duration);
+            if (dataFile) {
+                dataFile.print(str_buffer);
+                dataFile.flush();
+            }
         }
     }
 } 
