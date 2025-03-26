@@ -241,6 +241,50 @@ void setupWebServer() {
     Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
 }
 
+void drawStartButton() {
+    M5.Lcd.fillRect(START_BTN_X, BUTTON_AREA_Y, BTN_WIDTH, BTN_HEIGHT, GREEN);
+    M5.Lcd.setTextColor(BLACK);
+    M5.Lcd.drawCentreString("START", START_BTN_X + BTN_WIDTH / 2, BUTTON_AREA_Y + 15, 2);
+}
+
+void drawStopButton() {
+    M5.Lcd.fillRect(STOP_BTN_X, BUTTON_AREA_Y, BTN_WIDTH, BTN_HEIGHT, RED);
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.drawCentreString("STOP", STOP_BTN_X + BTN_WIDTH / 2, BUTTON_AREA_Y + 15, 2);
+}
+
+// 状态显示函数
+void updateStatusDisplay() {
+    // 保存当前文本颜色
+    uint16_t currentTextColor = M5.Lcd.textcolor;
+    
+    // 清除状态区域
+    M5.Lcd.fillRect(0, 0, 320, STATUS_AREA_HEIGHT, BLACK);
+    
+    // 设置状态文本颜色
+    M5.Lcd.setTextColor(WHITE);
+    M5.Lcd.setTextSize(1);
+    
+    // 显示SD卡状态
+    M5.Lcd.setCursor(10, 10);
+    M5.Lcd.printf("SD: %s", sdCardReady ? "OK" : "ERROR");
+    
+    // 显示WiFi状态
+    M5.Lcd.setCursor(100, 10);
+    M5.Lcd.printf("WiFi: %s", WiFi.status() == WL_CONNECTED ? "OK" : "OFF");
+    
+    // 显示录制状态
+    M5.Lcd.setCursor(190, 10);
+    M5.Lcd.printf("REC: %s", recording ? "ON" : "OFF");
+    
+    // 显示文件信息
+    M5.Lcd.setCursor(10, 25);
+    M5.Lcd.printf("File: %s", fileName);
+    
+    // 恢复原始文本颜色
+    M5.Lcd.setTextColor(currentTextColor);
+}
+
 void setup(void) {
     M5.begin();
     M5.Lcd.setTextSize(2);
@@ -270,7 +314,30 @@ void setup(void) {
         M5.Lcd.fillScreen(BLACK);
     }
 
-    // ... [保留原有的其他初始化代码] ...
+    // SD卡初始化
+    sdCardReady = checkSDCard();
+    if (!sdCardReady) {
+        M5.Lcd.fillScreen(RED);
+        M5.Lcd.setTextColor(WHITE);
+        M5.Lcd.drawString("SD Card Error!", 10, 10, 2);
+        delay(2000);
+        M5.Lcd.fillScreen(BLACK);
+        return;
+    } else {
+        M5.Lcd.fillScreen(GREEN);
+        M5.Lcd.setTextColor(BLACK);
+        M5.Lcd.drawString("SD Card OK!", 10, 10, 2);
+        delay(1000);
+        M5.Lcd.fillScreen(BLACK);
+    }
+
+    // 初始化ADS1100
+    ads.getAddr_ADS1100(ADS1100_DEFAULT_ADDRESS);
+    ads.setGain(GAIN_ONE);  // 1x 增益(default)
+    ads.setMode(MODE_CONTIN);  // 连续转换模式 (default)
+    ads.setRate(RATE_8);  // 8SPS (default)
+    ads.setOSMode(OSMODE_SINGLE);  // 单次转换模式
+    ads.begin();  // 初始化硬件
 
     // 设置Web服务器
     setupWebServer();
