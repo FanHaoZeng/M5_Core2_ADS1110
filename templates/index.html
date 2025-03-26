@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>实时数据监控</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+</head>
+<body>
+    <h1>实时数据监控</h1>
+    <div id="dataDisplay"></div>
+
+    <script>
+        var socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        socket.on('update', function(data) {
+            var display = document.getElementById('dataDisplay');
+            display.innerHTML = "实时数据: " + data;
+            console.log("Received: " + data);
+        });
+    </script>
+</body>
+</html>
