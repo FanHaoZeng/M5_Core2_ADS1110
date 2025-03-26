@@ -48,9 +48,9 @@ char sdBuffer[SD_BUFFER_SIZE];
 int bufferIndex = 0;
 
 // 显示区域定义
-#define STATUS_AREA_HEIGHT 40
-#define DATA_AREA_Y 50
-#define DATA_AREA_HEIGHT 120
+#define STATUS_AREA_HEIGHT 60  // 保持状态栏高度
+#define DATA_AREA_Y 60        // 减小间隙，直接从状态栏下方开始
+#define DATA_AREA_HEIGHT 110  // 稍微增加数据区域高度
 #define BUTTON_AREA_Y 180
 
 // 添加新的状态变量
@@ -163,20 +163,20 @@ void updateStatusDisplay() {
     // 清除状态区域
     M5.Lcd.fillRect(0, 0, 320, STATUS_AREA_HEIGHT, BLACK);
     
-    // 设置状态文本颜色
+    // 设置状态文本颜色和大小
     M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(1);
+    M5.Lcd.setTextSize(2);  // 增大文字大小
     
     // 显示SD卡状态
-    M5.Lcd.setCursor(10, 10);
+    M5.Lcd.setCursor(10, 20);  // 垂直居中一些
     M5.Lcd.printf("SD: %s", sdCardReady ? "OK" : "ERROR");
     
     // 显示WiFi状态
-    M5.Lcd.setCursor(100, 10);
+    M5.Lcd.setCursor(120, 20);  // 垂直居中一些
     M5.Lcd.printf("WiFi: %s", WiFi.status() == WL_CONNECTED ? "OK" : "OFF");
     
     // 显示录制状态
-    M5.Lcd.setCursor(190, 10);
+    M5.Lcd.setCursor(230, 20);  // 垂直居中一些
     M5.Lcd.printf("REC: %s", recording ? "ON" : "OFF");
     
     // 恢复原始文本颜色
