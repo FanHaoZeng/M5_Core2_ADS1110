@@ -18,6 +18,10 @@ __pycache__/
 recordings/
 *.wav
 
+# 日志文件
+logs/
+*.csv
+
 # IDE配置文件
 .vscode/
 .idea/
