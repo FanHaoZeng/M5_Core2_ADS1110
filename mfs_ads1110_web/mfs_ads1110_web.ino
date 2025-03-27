@@ -61,10 +61,10 @@ char sdBuffer[SD_BUFFER_SIZE];
 int bufferIndex = 0;
 
 // 显示区域定义
-#define STATUS_AREA_HEIGHT 60  // 增加状态栏高度
-#define DATA_AREA_Y 60        // 减小间隙，直接从状态栏下方开始
-#define DATA_AREA_HEIGHT 110  // 稍微增加数据区域高度
-#define BUTTON_AREA_Y 180
+#define STATUS_AREA_HEIGHT 80  // 增加状态栏高度
+#define DATA_AREA_Y 80        // 数据区域相应下移
+#define DATA_AREA_HEIGHT 110  // 保持数据区域高度不变
+#define BUTTON_AREA_Y 200     // 按钮区域相应下移
 
 // 添加新的状态变量
 unsigned long lastStatusUpdate = 0;
@@ -333,19 +333,18 @@ void updateStatusDisplay() {
     
     // 设置状态文本颜色和大小
     M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.setTextSize(2);  // 增大文字大小
+    M5.Lcd.setTextSize(2);  // 使用大字体
     
-    // 显示SD卡状态
-    M5.Lcd.setCursor(10, 20);  // 垂直居中一些
-    M5.Lcd.printf("SD: %s", sdCardReady ? "OK" : "ERROR");
+    // 第一行显示IP地址
+    M5.Lcd.setCursor(10, 10);
+    M5.Lcd.printf("IP: %s", WiFi.localIP().toString().c_str());
     
-    // 显示WiFi状态
-    M5.Lcd.setCursor(120, 20);  // 垂直居中一些
-    M5.Lcd.printf("WiFi: %s", WiFi.status() == WL_CONNECTED ? "OK" : "OFF");
-    
-    // 显示录制状态
-    M5.Lcd.setCursor(230, 20);  // 垂直居中一些
-    M5.Lcd.printf("REC: %s", recording ? "ON" : "OFF");
+    // 第二行显示状态信息
+    M5.Lcd.setCursor(10, 40);
+    M5.Lcd.printf("SD:%s WiFi:%s REC:%s", 
+                  sdCardReady ? "OK" : "ERR",
+                  WiFi.status() == WL_CONNECTED ? "OK" : "OFF",
+                  recording ? "ON" : "OFF");
     
     // 恢复原始文本颜色
     M5.Lcd.setTextColor(currentTextColor);
@@ -412,7 +411,7 @@ void recordData(float voltage) {
     M5.Rtc.GetTime(&RTCtime);
     M5.Rtc.GetDate(&RTCdate);
     
-    // 格式化时间戳
+    // 格式化时间戳（CSV文件使用ISO格式）
     sprintf(str_buffer, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
             RTCdate.Year, RTCdate.Month, RTCdate.Date,
             RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds,
@@ -639,12 +638,11 @@ void loop(void) {
             float voltage = (result / 32768.0) * 2048.0;
             unsigned long duration = (millis() - startTime) / 1000;
 
-            // 获取当前时间戳
+            // 获取当前时间戳（使用更可读的格式）
             M5.Rtc.GetTime(&RTCtime);
             M5.Rtc.GetDate(&RTCdate);
-            sprintf(str_buffer, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
-                    RTCdate.Year, RTCdate.Month, RTCdate.Date,
-                    RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds, millis() % 1000);
+            sprintf(str_buffer, "%02d:%02d:%02d",  // 只显示时分秒
+                    RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds);
 
             // 更新最新数据
             lastVoltage = voltage;
@@ -657,7 +655,7 @@ void loop(void) {
             M5.Lcd.setCursor(10, DATA_AREA_Y + 20);
             M5.Lcd.printf("Voltage: %.3f mV", voltage);
             M5.Lcd.setCursor(10, DATA_AREA_Y + 50);
-            M5.Lcd.printf("Time: %s", str_buffer);
+            M5.Lcd.printf("Time: %s", str_buffer);  // 显示简化后的时间
             M5.Lcd.setCursor(10, DATA_AREA_Y + 80);
             M5.Lcd.printf("Duration: %lu s", duration);
 
