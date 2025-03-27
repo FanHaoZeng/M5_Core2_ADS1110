@@ -377,7 +377,7 @@ void handleRoot() {
     html += "<p>WebSocket Port: 81</p>";
     html += "<p>Status: " + String(recording ? "Recording" : "Not Recording") + "</p>";
     html += "</div>";
-    html += "<p>请在电脑上运行数据可视化程序来查看实时数据。</p>";
+    html += "<p>Please run the data visualization program on your computer to view the real-time data.</p>";
     html += "</div></body></html>";
     
     server.send(200, "text/html", html);
