@@ -8,6 +8,7 @@
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <ArduinoJson.h>
 
 // Wi-Fi信息
@@ -23,6 +24,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", 10 * 3600, 60000);  // 布里斯班
 
 // Web服务器
 WebServer server(webPort);
+WebSocketsServer ws(81);  // WebSocket服务器在81端口
 
 ADS1100 ads;
 RTC_TimeTypeDef RTCtime;
@@ -350,58 +352,287 @@ void updateStatusDisplay() {
     M5.Lcd.setTextColor(currentTextColor);
 }
 
-// 处理根路径请求
+// 修改handleRoot函数
 void handleRoot() {
-    char html[2048];
-    snprintf(html, sizeof(html), htmlTemplate,
-             lastVoltage,
-             lastTimestamp.c_str(),
-             lastDuration,
-             sdCardReady ? "OK" : "ERROR",
-             WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED",
-             recording ? "ACTIVE" : "STOPPED"
-    );
+    String html = "<!DOCTYPE html><html><head>";
+    html += "<title>ADS1110 Data Logger</title>";
+    html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+    html += "<style>";
+    html += "body { font-family: Arial; margin: 20px; }";
+    html += ".container { max-width: 800px; margin: 0 auto; }";
+    html += ".status { margin: 20px 0; padding: 10px; border-radius: 5px; }";
+    html += ".recording { background-color: #d4edda; color: #155724; }";
+    html += ".not-recording { background-color: #f8d7da; color: #721c24; }";
+    html += ".button { display: inline-block; padding: 10px 20px; margin: 5px; border-radius: 5px; text-decoration: none; color: white; }";
+    html += ".start { background-color: #28a745; }";
+    html += ".stop { background-color: #dc3545; }";
+    html += ".refresh { background-color: #17a2b8; }";
+    html += ".files { background-color: #007bff; }";
+    html += "</style>";
+    
+    // 修改WebSocket连接代码
+    html += "<script>";
+    html += "let ws = null;";
+    html += "let reconnectAttempts = 0;";
+    html += "const maxReconnectAttempts = 5;";
+    html += "function connectWebSocket() {";
+    html += "    if (ws) {";
+    html += "        ws.close();";
+    html += "        ws = null;";
+    html += "    }";
+    html += "    const wsUrl = 'ws://' + window.location.hostname + ':81';";
+    html += "    console.log('Connecting to: ' + wsUrl);";
+    html += "    ws = new WebSocket(wsUrl);";
+    html += "    ws.onopen = function() {";
+    html += "        console.log('WebSocket Connected');";
+    html += "        document.getElementById('connection').textContent = 'Connected';";
+    html += "        document.getElementById('connection').style.color = '#28a745';";
+    html += "        reconnectAttempts = 0;";
+    html += "    };";
+    html += "    ws.onclose = function() {";
+    html += "        console.log('WebSocket Disconnected');";
+    html += "        document.getElementById('connection').textContent = 'Disconnected';";
+    html += "        document.getElementById('connection').style.color = '#dc3545';";
+    html += "        ws = null;";
+    html += "        if (reconnectAttempts < maxReconnectAttempts) {";
+    html += "            reconnectAttempts++;";
+    html += "            console.log('Reconnecting... Attempt: ' + reconnectAttempts);";
+    html += "            setTimeout(connectWebSocket, 2000);";
+    html += "        }";
+    html += "    };";
+    html += "    ws.onerror = function(error) {";
+    html += "        console.error('WebSocket Error:', error);";
+    html += "    };";
+    html += "    ws.onmessage = function(event) {";
+    html += "        console.log('Received:', event.data);";
+    html += "        try {";
+    html += "            const data = JSON.parse(event.data);";
+    html += "            document.getElementById('voltage').textContent = data.voltage.toFixed(3) + ' mV';";
+    html += "            document.getElementById('timestamp').textContent = data.timestamp;";
+    html += "            document.getElementById('duration').textContent = data.duration + ' seconds';";
+    html += "        } catch (e) {";
+    html += "            console.error('Error parsing data:', e);";
+    html += "        }";
+    html += "    };";
+    html += "}";
+    html += "window.addEventListener('load', connectWebSocket);";
+    html += "</script>";
+    html += "</head><body>";
+    html += "<div class='container'>";
+    html += "<h1>ADS1110 Data Logger</h1>";
+    
+    // 添加WebSocket连接状态显示
+    html += "<div class='status'>";
+    html += "WebSocket: <span id='connection' style='font-weight: bold;'>Connecting...</span>";
+    html += "</div>";
+    
+    // 显示状态
+    html += "<div class='status " + String(recording ? "recording" : "not-recording") + "'>";
+    html += "Status: " + String(recording ? "Recording" : "Not Recording");
+    html += "</div>";
+    
+    // 显示当前数据
+    html += "<div class='current-data'>";
+    html += "<h2>Current Data</h2>";
+    html += "<p>Voltage: <span id='voltage'>" + String(lastVoltage, 3) + " mV</span></p>";
+    html += "<p>Time: <span id='timestamp'>" + lastTimestamp + "</span></p>";
+    html += "<p>Duration: <span id='duration'>" + String(lastDuration) + " seconds</span></p>";
+    html += "</div>";
+    
+    // 控制按钮
+    html += "<div class='controls'>";
+    if (!recording) {
+        html += "<a href='/start' class='button start'>Start Recording</a>";
+    } else {
+        html += "<a href='/stop' class='button stop'>Stop Recording</a>";
+    }
+    html += "<a href='/refresh' class='button refresh'>Refresh</a>";
+    html += "<a href='/files' class='button files'>View Files</a>";
+    html += "</div>";
+    
+    html += "</div></body></html>";
+    
     server.send(200, "text/html", html);
 }
 
-// 修改文件列表处理函数
-String getFilesList() {
-    String fileList = "";
-    if (!sdCardReady) {
-        Serial.println("Error: SD card not ready when getting file list");
-        return "Error: SD card not ready";
-    }
-
+// 修改handleFileList函数
+void handleFileList() {
+    String html = "<!DOCTYPE html><html><head>";
+    html += "<title>Recorded Files</title>";
+    html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+    html += "<style>";
+    html += "body { font-family: Arial; margin: 20px; }";
+    html += ".container { max-width: 800px; margin: 0 auto; }";
+    html += ".file-list { margin: 20px 0; }";
+    html += ".file-item { padding: 15px; margin: 10px 0; background-color: #f8f9fa; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }";
+    html += ".button { display: inline-block; padding: 10px 20px; margin: 5px; border-radius: 5px; text-decoration: none; color: white; transition: all 0.3s; }";
+    html += ".download { background-color: #28a745; }";
+    html += ".download:hover { background-color: #218838; }";
+    html += ".back { background-color: #6c757d; }";
+    html += ".back:hover { background-color: #5a6268; }";
+    html += ".file-name { font-size: 16px; }";
+    html += ".file-size { color: #666; margin-left: 10px; }";
+    html += "</style>";
+    html += "</head><body>";
+    html += "<div class='container'>";
+    html += "<h1>Recorded Files</h1>";
+    html += "<a href='/' class='button back'>Back to Monitor</a>";
+    
     File root = SD.open("/");
     if (!root) {
-        Serial.println("Error: Failed to open root directory");
-        return "Error: Failed to open directory";
-    }
-
-    File file = root.openNextFile();
-    while (file) {
-        if (!file.isDirectory() && String(file.name()).endsWith(".csv")) {
-            String fileName = String(file.name());
-            unsigned long fileSize = file.size();
-            String fileSizeStr = String(fileSize / 1024.0, 1) + " KB";
-            
-            fileList += "<li class='file-item'>";
-            fileList += "<span>" + fileName + " (" + fileSizeStr + ")</span>";
-            fileList += "<a href='/download?file=" + fileName + "' class='button'>Download</a>";
-            fileList += "</li>";
+        html += "<p>Failed to open directory</p>";
+    } else {
+        File file = root.openNextFile();
+        while (file) {
+            if (!file.isDirectory() && String(file.name()).endsWith(".csv")) {
+                html += "<div class='file-item'>";
+                html += "<div class='file-info'>";
+                html += "<span class='file-name'>" + String(file.name()) + "</span>";
+                html += "<span class='file-size'>(" + String(file.size()) + " bytes)</span>";
+                html += "</div>";
+                html += "<a href='/download?file=" + String(file.name()) + "' class='button download'>Download</a>";
+                html += "</div>";
+            }
+            file = root.openNextFile();
         }
-        file = root.openNextFile();
+        root.close();
     }
     
-    if (fileList.length() == 0) {
-        fileList = "<li>No data files found</li>";
-    }
-
-    root.close();
-    return fileList;
+    html += "</div></body></html>";
+    
+    server.send(200, "text/html", html);
 }
 
-// 修改数据记录函数
+void handleRefresh() {
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleAPI() {
+    StaticJsonDocument<200> doc;
+    doc["voltage"] = lastVoltage;
+    doc["timestamp"] = lastTimestamp;
+    doc["duration"] = lastDuration;
+    doc["recording"] = recording;
+    doc["sdcard"] = sdCardReady;
+    
+    String response;
+    serializeJson(doc, response);
+    
+    server.send(200, "application/json", response);
+}
+
+void handleStart() {
+    if (!recording) {
+        if (createNewDataFile()) {
+            recording = true;
+            startTime = millis();
+            // 更新屏幕按钮
+            clearButtonArea(START_BTN_X, BUTTON_AREA_Y);
+            drawStopButton();
+        }
+    }
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleStop() {
+    if (recording) {
+        recording = false;
+        if (dataFile) {
+            flushBuffer();  // 确保所有数据都已写入
+            dataFile.close();
+        }
+        // 更新屏幕按钮
+        clearButtonArea(STOP_BTN_X, BUTTON_AREA_Y);
+        drawStartButton();
+    }
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+// 修改WebSocket事件处理函数
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[WebSocket] Client #%u Disconnected\n", num);
+            break;
+        case WStype_CONNECTED:
+            {
+                IPAddress ip = ws.remoteIP(num);
+                Serial.printf("[WebSocket] Client #%u Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+                
+                // 发送当前状态
+                StaticJsonDocument<200> doc;
+                doc["voltage"] = lastVoltage;
+                doc["timestamp"] = lastTimestamp;
+                doc["duration"] = lastDuration;
+                String jsonString;
+                serializeJson(doc, jsonString);
+                ws.sendTXT(num, jsonString);
+            }
+            break;
+        case WStype_TEXT:
+            Serial.printf("[WebSocket] Received text: %s\n", payload);
+            break;
+        case WStype_ERROR:
+            Serial.printf("[WebSocket] Error occurred for client #%u\n", num);
+            break;
+        case WStype_PING:
+            Serial.printf("[WebSocket] Received ping from client #%u\n", num);
+            break;
+        case WStype_PONG:
+            Serial.printf("[WebSocket] Received pong from client #%u\n", num);
+            break;
+    }
+}
+
+// 修改setupWebServer函数
+void setupWebServer() {
+    // 设置WebSocket事件处理程序
+    ws.begin();
+    ws.onEvent(webSocketEvent);
+
+    // 设置路由处理程序
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/files", HTTP_GET, handleFileList);
+    server.on("/download", HTTP_GET, handleDownload);
+    server.on("/refresh", HTTP_GET, handleRefresh);
+    server.on("/api", HTTP_GET, handleAPI);
+    server.on("/start", HTTP_GET, handleStart);
+    server.on("/stop", HTTP_GET, handleStop);
+    
+    // 启动服务器
+    server.begin();
+    Serial.println("HTTP server started");
+    Serial.printf("WebSocket server started at ws://%s:81\n", WiFi.localIP().toString().c_str());
+}
+
+// 添加handleDownload函数
+void handleDownload() {
+    String fileName = server.hasArg("file") ? server.arg("file") : lastRecordedFile;
+    if (!fileName.startsWith("/")) {
+        fileName = "/" + fileName;
+    }
+    
+    if (!SD.exists(fileName)) {
+        server.send(404, "text/plain", "File not found");
+        return;
+    }
+    
+    File file = SD.open(fileName, "r");
+    if (!file) {
+        server.send(500, "text/plain", "Error opening file");
+        return;
+    }
+    
+    server.sendHeader("Content-Type", "text/csv");
+    server.sendHeader("Content-Disposition", "attachment; filename=" + fileName.substring(1));
+    server.streamFile(file, "text/csv");
+    file.close();
+}
+
+// 添加recordData函数
 void recordData(float voltage) {
     if (!recording || !sdCardReady || !dataFile) {
         return;
@@ -426,86 +657,13 @@ void recordData(float voltage) {
     String dataString = String(str_buffer) + "," + String(voltage, 6) + "," + String(duration);
     if (dataFile) {
         if (dataFile.println(dataString)) {
-            dataFile.flush();
-            Serial.println("Timestamp: " + String(str_buffer) + " | Voltage: " + String(voltage, 6) + " mV | Duration: " + String(duration));
+            Serial.println("Data written: " + dataString);
         } else {
             Serial.println("Error: Failed to write data to file");
         }
     } else {
         Serial.println("Error: Data file not open");
     }
-}
-
-// 处理文件列表请求
-void handleFileList() {
-    String fileList = getFilesList();
-    char html[4096];  // 增加缓冲区大小以容纳更多文件
-    snprintf(html, sizeof(html), fileListTemplate, fileList.c_str());
-    server.send(200, "text/html", html);
-}
-
-// 修改下载处理函数以支持指定文件下载
-void handleDownload() {
-    String fileName = server.hasArg("file") ? server.arg("file") : lastRecordedFile;
-    
-    if (fileName.length() == 0) {
-        server.send(404, "text/plain", "No file specified");
-        return;
-    }
-    
-    if (!fileName.startsWith("/")) {
-        fileName = "/" + fileName;
-    }
-    
-    if (!SD.exists(fileName)) {
-        server.send(404, "text/plain", "File not found");
-        return;
-    }
-    
-    File file = SD.open(fileName, FILE_READ);
-    if (!file) {
-        server.send(500, "text/plain", "Error opening file");
-        return;
-    }
-    
-    String downloadFileName = fileName.startsWith("/") ? fileName.substring(1) : fileName;
-    
-    server.sendHeader("Content-Type", "text/csv");
-    server.sendHeader("Content-Disposition", "attachment; filename=" + downloadFileName);
-    server.streamFile(file, "text/csv");
-    file.close();
-}
-
-// 处理刷新请求
-void handleRefresh() {
-    server.sendHeader("Location", "/");
-    server.send(302, "text/plain", "");
-}
-
-// 处理API请求
-void handleAPI() {
-    StaticJsonDocument<200> doc;
-    doc["voltage"] = lastVoltage;
-    doc["timestamp"] = lastTimestamp;
-    doc["duration"] = lastDuration;
-    doc["recording"] = recording;
-    doc["sdCardReady"] = sdCardReady;
-    doc["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
-    
-    String response;
-    serializeJson(doc, response);
-    server.send(200, "application/json", response);
-}
-
-void setupWebServer() {
-    server.on("/", handleRoot);
-    server.on("/files", handleFileList);  // 添加新的路由
-    server.on("/download", handleDownload);
-    server.on("/refresh", handleRefresh);
-    server.on("/api", handleAPI);
-    server.begin();
-    Serial.println("Web server started");
-    Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
 }
 
 void setup(void) {
@@ -578,11 +736,15 @@ void loop(void) {
     
     // 处理Web请求
     server.handleClient();
+    ws.loop();
     
     unsigned long currentMillis = millis();
     
-    // 更新状态显示（现在有1秒的间隔）
-    updateStatusDisplay();
+    // 更新状态显示
+    if (currentMillis - lastStatusUpdate >= STATUS_UPDATE_INTERVAL) {
+        updateStatusDisplay();
+        lastStatusUpdate = currentMillis;
+    }
     
     // 检查触摸事件
     if (M5.Touch.ispressed()) {
@@ -614,22 +776,20 @@ void loop(void) {
         }
         // 检查STOP按钮区域
         else if (recording && point.y >= BUTTON_AREA_Y && point.y <= BUTTON_AREA_Y + BTN_HEIGHT) {
-            if (point.x >= STOP_BTN_X && point.x <= STOP_BTN_X + BTN_WIDTH) {
-                recording = false;
-                if (dataFile) {
-                    flushBuffer();  // 确保所有数据都已写入
-                    dataFile.close();
-                    Serial.println("File closed.");
-                }
-                clearButtonArea(STOP_BTN_X, BUTTON_AREA_Y);
-                drawStartButton();
-                Serial.println("Recording Stopped");
-                delay(100); // 增加防抖动
+            recording = false;
+            if (dataFile) {
+                flushBuffer();  // 确保所有数据都已写入
+                dataFile.close();
+                Serial.println("File closed.");
             }
+            clearButtonArea(STOP_BTN_X, BUTTON_AREA_Y);
+            drawStartButton();
+            Serial.println("Recording Stopped");
+            delay(100); // 增加防抖动
         }
     }
 
-    // 仅在录制状态下更新数据
+    // 在发送WebSocket数据时添加错误检查
     if (recording && sdCardReady) {
         if (currentMillis - previousMillis >= interval) {
             previousMillis = currentMillis;
@@ -638,39 +798,40 @@ void loop(void) {
             float voltage = (result / 32768.0) * 2048.0;
             unsigned long duration = (millis() - startTime) / 1000;
 
-            // 获取当前时间戳（使用更可读的格式）
+            // 获取当前时间戳
             M5.Rtc.GetTime(&RTCtime);
             M5.Rtc.GetDate(&RTCdate);
-            sprintf(str_buffer, "%02d:%02d:%02d",  // 只显示时分秒
+            sprintf(str_buffer, "%02d:%02d:%02d",
                     RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds);
 
-            // 更新最新数据
-            lastVoltage = voltage;
-            lastTimestamp = String(str_buffer);
-            lastDuration = duration;
+            // 创建JSON数据
+            StaticJsonDocument<200> doc;
+            doc["voltage"] = voltage;
+            doc["timestamp"] = str_buffer;
+            doc["duration"] = duration;
+            
+            String jsonString;
+            serializeJson(doc, jsonString);
+            
+            // 发送WebSocket数据并检查错误
+            if (ws.connectedClients() > 0) {
+                ws.broadcastTXT(jsonString);
+                Serial.println("[WebSocket] Data sent: " + jsonString);
+            }
 
             // 更新LCD显示
-            M5.Lcd.fillRect(0, DATA_AREA_Y, 320, DATA_AREA_HEIGHT, BLACK);  // 只清除数据区域
-            M5.Lcd.setTextSize(2);  // 设置数据区域文字大小为2
+            M5.Lcd.fillRect(0, DATA_AREA_Y, 320, DATA_AREA_HEIGHT, BLACK);
+            M5.Lcd.setTextSize(2);
             M5.Lcd.setCursor(10, DATA_AREA_Y + 20);
             M5.Lcd.printf("Voltage: %.3f mV", voltage);
             M5.Lcd.setCursor(10, DATA_AREA_Y + 50);
-            M5.Lcd.printf("Time: %s", str_buffer);  // 显示简化后的时间
+            M5.Lcd.printf("Time: %s", str_buffer);
             M5.Lcd.setCursor(10, DATA_AREA_Y + 80);
             M5.Lcd.printf("Duration: %lu s", duration);
-
-            // 串口输出
-            Serial.print("Timestamp: ");
-            Serial.print(str_buffer);
-            Serial.print(" | Voltage: ");
-            Serial.print(voltage, 6);
-            Serial.print(" mV | Duration: ");
-            Serial.println(duration);
 
             // 写入数据到SD卡
             recordData(voltage);
             
-            // 每100条数据强制刷新一次
             if (bufferIndex > SD_BUFFER_SIZE * 0.8) {
                 flushBuffer();
             }
