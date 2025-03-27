@@ -354,6 +354,11 @@ void updateStatusDisplay() {
 
 // 修改handleRoot函数
 void handleRoot() {
+    // 添加CORS头
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     String html = "<!DOCTYPE html><html><head>";
     html += "<title>ADS1110 Data Logger</title>";
     html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
@@ -363,93 +368,16 @@ void handleRoot() {
     html += ".status { margin: 20px 0; padding: 10px; border-radius: 5px; }";
     html += ".recording { background-color: #d4edda; color: #155724; }";
     html += ".not-recording { background-color: #f8d7da; color: #721c24; }";
-    html += ".button { display: inline-block; padding: 10px 20px; margin: 5px; border-radius: 5px; text-decoration: none; color: white; }";
-    html += ".start { background-color: #28a745; }";
-    html += ".stop { background-color: #dc3545; }";
-    html += ".refresh { background-color: #17a2b8; }";
-    html += ".files { background-color: #007bff; }";
     html += "</style>";
-    
-    // 修改WebSocket连接代码
-    html += "<script>";
-    html += "let ws = null;";
-    html += "let reconnectAttempts = 0;";
-    html += "const maxReconnectAttempts = 5;";
-    html += "function connectWebSocket() {";
-    html += "    if (ws) {";
-    html += "        ws.close();";
-    html += "        ws = null;";
-    html += "    }";
-    html += "    const wsUrl = 'ws://' + window.location.hostname + ':81';";
-    html += "    console.log('Connecting to: ' + wsUrl);";
-    html += "    ws = new WebSocket(wsUrl);";
-    html += "    ws.onopen = function() {";
-    html += "        console.log('WebSocket Connected');";
-    html += "        document.getElementById('connection').textContent = 'Connected';";
-    html += "        document.getElementById('connection').style.color = '#28a745';";
-    html += "        reconnectAttempts = 0;";
-    html += "    };";
-    html += "    ws.onclose = function() {";
-    html += "        console.log('WebSocket Disconnected');";
-    html += "        document.getElementById('connection').textContent = 'Disconnected';";
-    html += "        document.getElementById('connection').style.color = '#dc3545';";
-    html += "        ws = null;";
-    html += "        if (reconnectAttempts < maxReconnectAttempts) {";
-    html += "            reconnectAttempts++;";
-    html += "            console.log('Reconnecting... Attempt: ' + reconnectAttempts);";
-    html += "            setTimeout(connectWebSocket, 2000);";
-    html += "        }";
-    html += "    };";
-    html += "    ws.onerror = function(error) {";
-    html += "        console.error('WebSocket Error:', error);";
-    html += "    };";
-    html += "    ws.onmessage = function(event) {";
-    html += "        console.log('Received:', event.data);";
-    html += "        try {";
-    html += "            const data = JSON.parse(event.data);";
-    html += "            document.getElementById('voltage').textContent = data.voltage.toFixed(3) + ' mV';";
-    html += "            document.getElementById('timestamp').textContent = data.timestamp;";
-    html += "            document.getElementById('duration').textContent = data.duration + ' seconds';";
-    html += "        } catch (e) {";
-    html += "            console.error('Error parsing data:', e);";
-    html += "        }";
-    html += "    };";
-    html += "}";
-    html += "window.addEventListener('load', connectWebSocket);";
-    html += "</script>";
     html += "</head><body>";
     html += "<div class='container'>";
-    html += "<h1>ADS1110 Data Logger</h1>";
-    
-    // 添加WebSocket连接状态显示
+    html += "<h1>ADS1110 Data Logger Status</h1>";
     html += "<div class='status'>";
-    html += "WebSocket: <span id='connection' style='font-weight: bold;'>Connecting...</span>";
+    html += "<p>Device IP: " + WiFi.localIP().toString() + "</p>";
+    html += "<p>WebSocket Port: 81</p>";
+    html += "<p>Status: " + String(recording ? "Recording" : "Not Recording") + "</p>";
     html += "</div>";
-    
-    // 显示状态
-    html += "<div class='status " + String(recording ? "recording" : "not-recording") + "'>";
-    html += "Status: " + String(recording ? "Recording" : "Not Recording");
-    html += "</div>";
-    
-    // 显示当前数据
-    html += "<div class='current-data'>";
-    html += "<h2>Current Data</h2>";
-    html += "<p>Voltage: <span id='voltage'>" + String(lastVoltage, 3) + " mV</span></p>";
-    html += "<p>Time: <span id='timestamp'>" + lastTimestamp + "</span></p>";
-    html += "<p>Duration: <span id='duration'>" + String(lastDuration) + " seconds</span></p>";
-    html += "</div>";
-    
-    // 控制按钮
-    html += "<div class='controls'>";
-    if (!recording) {
-        html += "<a href='/start' class='button start'>Start Recording</a>";
-    } else {
-        html += "<a href='/stop' class='button stop'>Stop Recording</a>";
-    }
-    html += "<a href='/refresh' class='button refresh'>Refresh</a>";
-    html += "<a href='/files' class='button files'>View Files</a>";
-    html += "</div>";
-    
+    html += "<p>请在电脑上运行数据可视化程序来查看实时数据。</p>";
     html += "</div></body></html>";
     
     server.send(200, "text/html", html);
@@ -457,6 +385,11 @@ void handleRoot() {
 
 // 修改handleFileList函数
 void handleFileList() {
+    // 添加CORS头
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     String html = "<!DOCTYPE html><html><head>";
     html += "<title>Recorded Files</title>";
     html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
@@ -509,6 +442,11 @@ void handleRefresh() {
 }
 
 void handleAPI() {
+    // 添加CORS头
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     StaticJsonDocument<200> doc;
     doc["voltage"] = lastVoltage;
     doc["timestamp"] = lastTimestamp;
@@ -518,11 +456,15 @@ void handleAPI() {
     
     String response;
     serializeJson(doc, response);
-    
     server.send(200, "application/json", response);
 }
 
 void handleStart() {
+    // 添加CORS头
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     if (!recording) {
         if (createNewDataFile()) {
             recording = true;
@@ -532,11 +474,15 @@ void handleStart() {
             drawStopButton();
         }
     }
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "Recording started");
 }
 
 void handleStop() {
+    // 添加CORS头
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     if (recording) {
         recording = false;
         if (dataFile) {
@@ -547,8 +493,7 @@ void handleStop() {
         clearButtonArea(STOP_BTN_X, BUTTON_AREA_Y);
         drawStartButton();
     }
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "Recording stopped");
 }
 
 // 修改WebSocket事件处理函数
@@ -610,6 +555,11 @@ void setupWebServer() {
 
 // 添加handleDownload函数
 void handleDownload() {
+    // 添加CORS头
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     String fileName = server.hasArg("file") ? server.arg("file") : lastRecordedFile;
     if (!fileName.startsWith("/")) {
         fileName = "/" + fileName;
