@@ -11,8 +11,10 @@ import keyboard
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import sys
+import tempfile
 
 class AudioRecorder:
     def __init__(self):
@@ -48,14 +50,43 @@ class AudioRecorder:
         # 创建必要的目录
         self.recordings_dir = "recordings"
         self.logs_dir = "logs"
-        for directory in [self.recordings_dir, self.logs_dir]:
-            if not os.path.exists(directory):
-                os.makedirs(directory)
+        self.use_temp_dir = False
+        
+        # 尝试创建目录，如果失败则使用临时目录
+        try:
+            for directory in [self.recordings_dir, self.logs_dir]:
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
+        except (PermissionError, OSError) as e:
+            print(f"无法创建目录: {e}")
+            # 使用临时目录
+            temp_dir = tempfile.gettempdir()
+            self.recordings_dir = os.path.join(temp_dir, "audio_recordings")
+            self.logs_dir = os.path.join(temp_dir, "audio_logs")
+            self.use_temp_dir = True
+            
+            # 创建临时目录
+            for directory in [self.recordings_dir, self.logs_dir]:
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
         
         # 初始化日志文件
         self.recording_log_file = os.path.join(self.logs_dir, f"recording_log_{datetime.now().strftime('%Y%m%d')}.csv")
         self.sound_log_file = os.path.join(self.logs_dir, f"sound_log_{datetime.now().strftime('%Y%m%d')}.csv")
-        self.initialize_log_files()
+        
+        # 初始化内存日志
+        self.recording_logs = []
+        self.sound_logs = []
+        
+        # 检查日志文件是否可写
+        self.recording_log_writable = self.check_file_writable(self.recording_log_file)
+        self.sound_log_writable = self.check_file_writable(self.sound_log_file)
+        
+        # 如果日志文件可写，则初始化它们
+        if self.recording_log_writable:
+            self.initialize_recording_log()
+        if self.sound_log_writable:
+            self.initialize_sound_log()
         
         # 创建主窗口
         self.root = tk.Tk()
@@ -83,36 +114,66 @@ class AudioRecorder:
         # 初始化界面
         self.init_waveform_display()
         self.init_control_panel()
+        
+        # 如果使用了临时目录，显示提示
+        if self.use_temp_dir:
+            messagebox.showinfo("目录信息", 
+                               f"由于权限问题，程序将使用临时目录存储文件：\n"
+                               f"录音文件: {self.recordings_dir}\n"
+                               f"日志文件: {self.logs_dir}")
+    
+    def check_file_writable(self, filepath):
+        """检查文件是否可写"""
+        # 如果文件不存在，检查目录是否可写
+        if not os.path.exists(filepath):
+            directory = os.path.dirname(filepath)
+            return os.access(directory, os.W_OK)
+        
+        # 如果文件存在，检查文件是否可写
+        return os.access(filepath, os.W_OK)
+    
+    def initialize_recording_log(self):
+        """初始化录音日志文件"""
+        try:
+            if not os.path.exists(self.recording_log_file):
+                with open(self.recording_log_file, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        'Start Time',
+                        'End Time',
+                        'Filename',
+                        'Duration (s)',
+                        'Sample Rate',
+                        'Status'
+                    ])
+        except (PermissionError, OSError) as e:
+            print(f"无法创建录音日志文件: {e}")
+            self.recording_log_writable = False
+    
+    def initialize_sound_log(self):
+        """初始化声音日志文件"""
+        try:
+            if not os.path.exists(self.sound_log_file):
+                with open(self.sound_log_file, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        'Start Time',
+                        'End Time',
+                        'Type',
+                        'Frequency (Hz)',
+                        'Waveform',
+                        'Duration (s)',
+                        'Volume',
+                        'Status'
+                    ])
+        except (PermissionError, OSError) as e:
+            print(f"无法创建声音日志文件: {e}")
+            self.sound_log_writable = False
     
     def initialize_log_files(self):
-        """Initialize CSV log files"""
-        # 初始化录音日志
-        if not os.path.exists(self.recording_log_file):
-            with open(self.recording_log_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    'Start Time',
-                    'End Time',
-                    'Filename',
-                    'Duration (s)',
-                    'Sample Rate',
-                    'Status'
-                ])
-        
-        # 初始化声音生成日志
-        if not os.path.exists(self.sound_log_file):
-            with open(self.sound_log_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    'Start Time',
-                    'End Time',
-                    'Type',
-                    'Frequency (Hz)',
-                    'Waveform',
-                    'Duration (s)',
-                    'Volume',
-                    'Status'
-                ])
+        """Initialize CSV log files - 保留此方法以兼容旧代码"""
+        self.initialize_recording_log()
+        self.initialize_sound_log()
 
     def get_timestamp(self):
         """Get formatted timestamp"""
@@ -125,19 +186,30 @@ class AudioRecorder:
             end_time = self.get_timestamp()
             if self.start_time is None:
                 self.start_time = self.get_timestamp()
-                
-            with open(self.recording_log_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    self.start_time,
-                    end_time,
-                    filename,
-                    f"{duration:.2f}",
-                    self.sample_rate,
-                    status
-                ])
+            
+            log_entry = [
+                self.start_time,
+                end_time,
+                filename,
+                f"{duration:.2f}",
+                self.sample_rate,
+                status
+            ]
+            
+            # 始终将日志添加到内存中
+            self.recording_logs.append(log_entry)
+            
+            # 如果日志文件可写，则写入文件
+            if self.recording_log_writable:
+                try:
+                    with open(self.recording_log_file, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(log_entry)
+                except Exception as e:
+                    print(f"写入录音日志文件失败: {e}")
+                    self.recording_log_writable = False
         except Exception as e:
-            print(f"Warning: Failed to write to recording log file: {str(e)}")
+            print(f"记录录音信息失败: {e}")
     
     def log_sound(self, sound_type, frequency, waveform, duration, volume, status="Success"):
         """Log sound generation/preview information to CSV"""
@@ -145,21 +217,32 @@ class AudioRecorder:
             end_time = self.get_timestamp()
             if self.start_time is None:
                 self.start_time = self.get_timestamp()
-                
-            with open(self.sound_log_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    self.start_time,
-                    end_time,
-                    sound_type,
-                    frequency,
-                    waveform,
-                    f"{duration:.2f}",
-                    f"{volume:.2f}",
-                    status
-                ])
+            
+            log_entry = [
+                self.start_time,
+                end_time,
+                sound_type,
+                frequency,
+                waveform,
+                f"{duration:.2f}",
+                f"{volume:.2f}",
+                status
+            ]
+            
+            # 始终将日志添加到内存中
+            self.sound_logs.append(log_entry)
+            
+            # 如果日志文件可写，则写入文件
+            if self.sound_log_writable:
+                try:
+                    with open(self.sound_log_file, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(log_entry)
+                except Exception as e:
+                    print(f"写入声音日志文件失败: {e}")
+                    self.sound_log_writable = False
         except Exception as e:
-            print(f"Warning: Failed to write to sound log file: {str(e)}")
+            print(f"记录声音信息失败: {e}")
     
     def audio_callback(self, indata, frames, time, status):
         """音频回调函数"""
@@ -205,7 +288,29 @@ class AudioRecorder:
             return True
         except Exception as e:
             print(f"保存录音失败: {e}")
-            return False
+            # 尝试使用临时目录
+            if not self.use_temp_dir:
+                try:
+                    temp_dir = tempfile.gettempdir()
+                    temp_recordings_dir = os.path.join(temp_dir, "audio_recordings")
+                    if not os.path.exists(temp_recordings_dir):
+                        os.makedirs(temp_recordings_dir)
+                    filepath = os.path.join(temp_recordings_dir, filename)
+                    with wave.open(filepath, 'wb') as wf:
+                        wf.setnchannels(self.channels)
+                        wf.setsampwidth(2)
+                        wf.setframerate(self.sample_rate)
+                        wf.writeframes((data * 32767).astype(np.int16).tobytes())
+                    print(f"录音已保存到临时目录: {filepath}")
+                    messagebox.showinfo("保存位置", f"由于权限问题，录音已保存到临时目录:\n{filepath}")
+                    return True
+                except Exception as e2:
+                    print(f"保存到临时目录也失败: {e2}")
+                    messagebox.showerror("保存失败", f"无法保存录音文件: {e2}")
+                    return False
+            else:
+                messagebox.showerror("保存失败", f"无法保存录音文件: {e}")
+                return False
     
     def toggle_recording(self):
         """切换录制状态"""
