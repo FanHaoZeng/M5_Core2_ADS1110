@@ -12,8 +12,8 @@
 #include <ArduinoJson.h>
 
 // Wi-Fi信息
-const char* ssid = "GPA7";
-const char* password = "yaoyaoaa";
+const char* ssid = "Fanhao's iPhone";
+const char* password = "1122334455";
 
 // Web服务器端口
 const int webPort = 80;
@@ -745,7 +745,8 @@ void loop(void) {
             previousMillis = currentMillis;
 
             int16_t result = ads.Measure_Differential();
-            float voltage = (result / 32768.0) * 2048.0;
+            float voltage = ((result / 2047) * 3.3 )* 1000;
+            // float voltage = (result / 32768.0) * 2048.0;
             unsigned long duration = (millis() - startTime) / 1000;
 
             // 获取当前时间戳
