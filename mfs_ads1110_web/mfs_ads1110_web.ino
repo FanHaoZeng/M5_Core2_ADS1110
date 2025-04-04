@@ -12,8 +12,8 @@
 #include <ArduinoJson.h>
 
 // Wi-Fi信息
-const char* ssid = "Fanhao's iPhone";
-const char* password = "1122334455";
+const char* ssid = "GPA7";
+const char* password = "yaoyaoaa";
 
 // Web服务器端口
 const int webPort = 80;
@@ -745,8 +745,17 @@ void loop(void) {
             previousMillis = currentMillis;
 
             int16_t result = ads.Measure_Differential();
-            float voltage = ((result / 2047) * 3.3 )* 1000;
-            // float voltage = (result / 32768.0) * 2048.0;
+            // float voltage = ((result / 2047.0) * 3.3) * 1000.0;  // 将结果转换为毫伏
+            
+            // 转换为 ADS1100 模拟电压（V）
+            float voltage_ads = (float)result / 32768.0 * 2.048;
+
+            // ADC Unit 内部分压比例（12V 映射到 2.048V）
+            float scale = 12.0 / 2.048;
+
+            // 反推输入电压
+            float voltage = voltage_ads * scale * 1000;
+
             unsigned long duration = (millis() - startTime) / 1000;
 
             // 获取当前时间戳
