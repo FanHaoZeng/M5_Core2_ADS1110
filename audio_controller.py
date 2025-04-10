@@ -215,11 +215,11 @@ class AudioRecorder:
         """Log sound generation/preview information to CSV"""
         try:
             end_time = self.get_timestamp()
-            if self.start_time is None:
-                self.start_time = self.get_timestamp()
+            # 移除对self.start_time的依赖，直接计算开始时间
+            start_time = datetime.fromtimestamp(time.time() - duration).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             
             log_entry = [
-                self.start_time,
+                start_time,
                 end_time,
                 sound_type,
                 frequency,
@@ -612,10 +612,7 @@ class AudioRecorder:
                 self.log_sound("Generation", frequency, waveform, actual_duration, amplitude)
             
         except Exception as e:
-            if self.generator_start_time:
-                actual_duration = time.time() - self.generator_start_time  # 计算实际播放时长
-            else:
-                actual_duration = 0
+            actual_duration = time.time() - self.generator_start_time if self.generator_start_time else 0
             self.generator_status.config(text=f"Generation failed: {str(e)}")
             self.generating = False
             self.generate_button.config(text="Generate Sound")
@@ -727,10 +724,7 @@ class AudioRecorder:
             self.log_sound("Preview", frequency, waveform, actual_duration, amplitude)
             
         except Exception as e:
-            if self.preview_start_time:
-                actual_duration = time.time() - self.preview_start_time  # 计算实际播放时长
-            else:
-                actual_duration = 0
+            actual_duration = time.time() - self.preview_start_time if self.preview_start_time else 0
             self.generator_status.config(text=f"Preview failed: {str(e)}")
             self.previewing = False
             self.preview_button.config(text="Preview")
