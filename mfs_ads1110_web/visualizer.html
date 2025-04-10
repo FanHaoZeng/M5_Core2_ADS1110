@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ADS1110 Data Visualization</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .status-panel {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .status-item {
+            text-align: center;
+        }
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        .status-label {
+            color: #666;
+        }
+        .chart-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .connection-status {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            color: white;
+        }
+        .button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .button.record {
+            background-color: #28a745;
+        }
+        .button.record:hover:not(:disabled) {
+            background-color: #218838;
+        }
+        .button.stop {
+            background-color: #dc3545;
+        }
+        .button.stop:hover:not(:disabled) {
+            background-color: #c82333;
+        }
+        .button.connect {
+            background-color: #007bff;
+        }
+        .button.connect:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        .button.clear {
+            background-color: #6c757d;
+        }
+        .button.clear:hover:not(:disabled) {
+            background-color: #545b62;
+        }
+        .button.refresh {
+            background-color: #17a2b8;
+        }
+        .button.refresh:hover:not(:disabled) {
+            background-color: #138496;
+        }
+        .file-list {
+            margin-top: 20px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            border-bottom: 1px solid #dee2e6;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .file-info {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .file-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .file-size {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .button.download {
+            background-color: #17a2b8;
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .button.download:hover {
+            background-color: #138496;
+        }
+        .recording {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ADS1110 Data Visualization</h1>
+        
+        <div class="connection-status disconnected" id="connectionStatus">
+            Not Connected
+        </div>
+
+        <div class="controls">
+            <input type="text" id="ipAddress" placeholder="Enter Device IP" value="192.168.31.63" style="padding: 8px; margin-right: 10px;">
+            <button class="button connect" onclick="connectWebSocket()">Connect</button>
+            <button class="button clear" onclick="clearData()">Clear Chart</button>
+            <button class="button record" id="recordBtn" onclick="toggleRecording()" disabled>Start Recording</button>
+            <button class="button refresh" onclick="refreshFileList()" disabled id="refreshBtn">Refresh Files</button>
+        </div>
+
+        <div class="status-panel">
+            <div class="status-item">
+                <div class="status-value" id="currentVoltage">0.000</div>
+                <div class="status-label">Voltage (mV)</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="currentTime">00:00:00</div>
+                <div class="status-label">Time</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="duration">0</div>
+                <div class="status-label">Duration (s)</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="recordStatus">Not Recording</div>
+                <div class="status-label">Recording Status</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="voltageChart"></canvas>
+        </div>
+
+        <div class="file-list" id="fileList">
+            <h2>Recorded Files</h2>
+            <div id="fileListContent">
+                <!-- File list will be displayed here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let voltageChart = null;
+        let isRecording = false;
+        let deviceIP = '';
+        let chartData = {
+            labels: [],
+            datasets: [{
+                label: 'Voltage (mV)',
+                data: [],
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1,
+                fill: false
+            }]
+        };
+        const maxDataPoints = 100;  // 最多显示100个数据点
+
+        function initChart() {
+            const ctx = document.getElementById('voltageChart').getContext('2d');
+            voltageChart = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    animation: false,  // 禁用动画以提高性能
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: 'Voltage (mV)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(voltage, timestamp) {
+            if (chartData.labels.length > maxDataPoints) {
+                chartData.labels.shift();
+                chartData.datasets[0].data.shift();
+            }
+            chartData.labels.push(timestamp);
+            chartData.datasets[0].data.push(voltage);
+            voltageChart.update('none');
+        }
+
+        function clearData() {
+            chartData.labels = [];
+            chartData.datasets[0].data = [];
+            voltageChart.update();
+        }
+
+        function toggleRecording() {
+            const btn = document.getElementById('recordBtn');
+            const statusText = document.getElementById('recordStatus');
+            
+            if (!isRecording) {
+                // 开始录制
+                fetch(`http://${deviceIP}/start`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.text();
+                    })
+                    .then(text => {
+                        console.log('Recording started:', text);
+                        isRecording = true;
+                        // 更新按钮外观
+                        btn.textContent = 'Stop Recording';
+                        btn.className = 'button stop';
+                        // 更新状态显示
+                        statusText.textContent = 'Recording';
+                        statusText.classList.add('recording');
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Failed to start recording');
+                        // 确保状态重置
+                        isRecording = false;
+                        btn.textContent = 'Start Recording';
+                        btn.className = 'button record';
+                        statusText.textContent = 'Not Recording';
+                        statusText.classList.remove('recording');
+                    });
+            } else {
+                // 停止录制
+                fetch(`http://${deviceIP}/stop`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.text();
+                    })
+                    .then(text => {
+                        console.log('Recording stopped:', text);
+                        isRecording = false;
+                        // 更新按钮外观
+                        btn.textContent = 'Start Recording';
+                        btn.className = 'button record';
+                        // 更新状态显示
+                        statusText.textContent = 'Not Recording';
+                        statusText.classList.remove('recording');
+                        // 刷新文件列表
+                        setTimeout(refreshFileList, 500);
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Failed to stop recording');
+                    });
+            }
+        }
+
+        function refreshFileList() {
+            console.log('Refreshing file list...');
+            fetch(`http://${deviceIP}/files`)
+                .then(response => response.text())
+                .then(html => {
+                    console.log('Received file list HTML:', html);
+                    const fileListContent = document.getElementById('fileListContent');
+                    fileListContent.innerHTML = '';
+                    
+                    // 创建临时div来解析HTML
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    
+                    // 查找所有下载链接
+                    const downloadLinks = tempDiv.querySelectorAll('a[href^="/download"]');
+                    let hasFiles = false;
+                    
+                    downloadLinks.forEach(link => {
+                        hasFiles = true;
+                        const fileItem = link.closest('.file-item');
+                        if (fileItem) {
+                            const fileInfo = fileItem.querySelector('.file-info');
+                            const fileName = fileInfo.querySelector('.file-name').textContent;
+                            const fileSize = fileInfo.querySelector('.file-size').textContent;
+                            
+                            const fileDiv = document.createElement('div');
+                            fileDiv.className = 'file-item';
+                            fileDiv.innerHTML = `
+                                <div class="file-info">
+                                    <span class="file-name">${fileName}</span>
+                                    <span class="file-size">${fileSize}</span>
+                                </div>
+                                <button class="button download" onclick="downloadFile('${fileName}')">Download</button>
+                            `;
+                            fileListContent.appendChild(fileDiv);
+                        }
+                    });
+                    
+                    if (!hasFiles) {
+                        fileListContent.innerHTML = '<p style="text-align: center; color: #666;">No recorded files</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching file list:', error);
+                    document.getElementById('fileListContent').innerHTML = 
+                        '<p style="text-align: center; color: #dc3545;">Failed to fetch file list</p>';
+                });
+        }
+
+        function downloadFile(fileName) {
+            const a = document.createElement('a');
+            a.href = `http://${deviceIP}/download?file=${fileName}`;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function connectWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+
+            deviceIP = document.getElementById('ipAddress').value;
+            const wsUrl = `ws://${deviceIP}:81`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log('WebSocket Connected');
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                document.getElementById('connectionStatus').className = 'connection-status connected';
+                // 启用控制按钮
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('refreshBtn').disabled = false;
+                // 获取当前状态
+                fetch(`http://${deviceIP}/api`)
+                    .then(response => response.json())
+                    .then(data => {
+                        isRecording = data.recording;
+                        const btn = document.getElementById('recordBtn');
+                        const statusText = document.getElementById('recordStatus');
+                        if (isRecording) {
+                            btn.textContent = 'Stop Recording';
+                            btn.className = 'button stop';
+                            statusText.textContent = 'Recording';
+                            statusText.classList.add('recording');
+                        }
+                    });
+                // 刷新文件列表
+                refreshFileList();
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket Disconnected');
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                document.getElementById('connectionStatus').className = 'connection-status disconnected';
+                // 禁用控制按钮
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('refreshBtn').disabled = true;
+                ws = null;
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket Error:', error);
+                document.getElementById('connectionStatus').textContent = 'Connection Error';
+                document.getElementById('connectionStatus').className = 'connection-status disconnected';
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    document.getElementById('currentVoltage').textContent = data.voltage.toFixed(3);
+                    document.getElementById('currentTime').textContent = data.timestamp;
+                    document.getElementById('duration').textContent = data.duration;
+                    updateChart(data.voltage, data.timestamp);
+                } catch (e) {
+                    console.error('Error parsing data:', e);
+                }
+            };
+        }
+
+        // 初始化图表
+        window.addEventListener('load', initChart);
+    </script>
+</body>
+</html> 
