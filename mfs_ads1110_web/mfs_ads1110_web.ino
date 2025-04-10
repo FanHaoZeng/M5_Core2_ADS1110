@@ -606,7 +606,7 @@ void handleDownload() {
     file.close();
 }
 
-// 添加recordData函数
+// 修改recordData函数
 void recordData(float voltage) {
     if (!recording || !sdCardReady || !dataFile) {
         return;
@@ -627,10 +627,11 @@ void recordData(float voltage) {
     lastTimestamp = String(str_buffer);
     lastDuration = duration;
 
-    // 写入数据到文件
-    String dataString = String(str_buffer) + "," + String(voltage, 6) + "," + String(duration);
+    // 直接写入数据到文件，不使用缓冲区
+    String dataString = String(str_buffer) + "," + String(voltage, 6) + "," + String(duration) + "\n";
     if (dataFile) {
-        if (dataFile.println(dataString)) {
+        if (dataFile.print(dataString)) {
+            dataFile.flush();  // 立即写入到SD卡
             Serial.println("Data written: " + dataString);
         } else {
             Serial.println("Error: Failed to write data to file");
@@ -815,10 +816,6 @@ void loop(void) {
 
             // 写入数据到SD卡
             recordData(voltage);
-            
-            if (bufferIndex > SD_BUFFER_SIZE * 0.8) {
-                flushBuffer();
-            }
         }
     }
 } 
