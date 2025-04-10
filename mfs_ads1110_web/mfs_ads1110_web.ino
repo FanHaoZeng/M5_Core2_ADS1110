@@ -12,8 +12,10 @@
 #include <ArduinoJson.h>
 
 // Wi-Fi信息
-const char* ssid = "GPA7";
-const char* password = "yaoyaoaa";
+const char* ssid = "GPA7";  // 默认WiFi名称
+const char* password = "yaoyaoaa";  // 默认WiFi密码
+const char* hotspot_ssid = "Fanhao";  // 默认手机热点名称
+const char* hotspot_password = "1122334455";  // 默认手机热点密码
 
 // Web服务器端口
 const int webPort = 80;
@@ -203,17 +205,39 @@ void clearButtonArea(int x, int y) {
 // 连接Wi-Fi
 void connectWiFi() {
     Serial.print("Connecting to WiFi");
+    
+    // 首先尝试连接默认WiFi
     WiFi.begin(ssid, password);
     int retryCount = 0;
-    while (WiFi.status() != WL_CONNECTED && retryCount < 20) {
+    while (WiFi.status() != WL_CONNECTED && retryCount < 10) {
         delay(500);
         Serial.print(".");
         retryCount++;
     }
+    
+    // 如果默认WiFi连接失败，尝试连接手机热点
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\nDefault WiFi connection failed, trying hotspot...");
+        WiFi.disconnect();
+        delay(1000);
+        
+        WiFi.begin(hotspot_ssid, hotspot_password);
+        retryCount = 0;
+        while (WiFi.status() != WL_CONNECTED && retryCount < 10) {
+            delay(500);
+            Serial.print(".");
+            retryCount++;
+        }
+    }
+    
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println(" Connected!");
+        Serial.print("Connected to: ");
+        Serial.println(WiFi.SSID());
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
     } else {
-        Serial.println(" Failed to connect!");
+        Serial.println(" Failed to connect to both WiFi and hotspot!");
     }
 }
 
