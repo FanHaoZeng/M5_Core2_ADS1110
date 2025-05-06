@@ -37,7 +37,7 @@ File dataFile;
 bool recording = false;
 unsigned long startTime = 0;
 unsigned long previousMillis = 0;
-const unsigned long interval = 1000;  // 数据更新间隔（1秒）
+const unsigned long interval = 124;  // 数据更新间隔（1秒 ：1000）
 
 // 最新数据
 float lastVoltage = 0.0;
@@ -691,9 +691,9 @@ void setup(void) {
 
     // 初始化ADS1100
     ads.getAddr_ADS1100(ADS1100_DEFAULT_ADDRESS);
-    ads.setGain(GAIN_ONE);  // 1x 增益(default)
+    ads.setGain(GAIN_EIGHT);  // 1x 增益(default)
     ads.setMode(MODE_CONTIN);  // 连续转换模式 (default)
-    ads.setRate(RATE_8);  // 8SPS (default)
+    ads.setRate(RATE_8);  //   8SPS (default)
     ads.setOSMode(OSMODE_SINGLE);  // 单次转换模式
     ads.begin();  // 初始化硬件
 
@@ -770,16 +770,19 @@ void loop(void) {
             previousMillis = currentMillis;
 
             int16_t result = ads.Measure_Differential();
-            // float voltage = ((result / 2047.0) * 3.3) * 1000.0;  // 将结果转换为毫伏
             
-            // 转换为 ADS1100 模拟电压（V）
-            float voltage_ads = (float)result / 32768.0 * 2.048;
+            // // 转换为 ADS1100 模拟电压（V）
+            // float voltage_ads = (float)result / 32768.0 * 2.048;
 
-            // ADC Unit 内部分压比例（12V 映射到 2.048V）
-            float scale = 12.0 / 2.048;
+            // // ADC Unit 内部分压比例（12V 映射到 2.048V）
+            // float scale = 12.0 / 2.048;
 
-            // 反推输入电压
-            float voltage = voltage_ads * scale * 1000;
+            // float gain_scale = 3.64;
+
+            // // 反推输入电压
+            // float voltage = voltage_ads * scale * 1000;
+
+            float voltage = (float)result / 32768.0 / 8.0 *  12.0 * 1000;
 
             unsigned long duration = (millis() - startTime) / 1000;
 
@@ -798,7 +801,7 @@ void loop(void) {
             String jsonString;
             serializeJson(doc, jsonString);
             
-            // 发送WebSocket数据并检查错误
+            // delay
             if (ws.connectedClients() > 0) {
                 ws.broadcastTXT(jsonString);
                 Serial.println("[WebSocket] Data sent: " + jsonString);
