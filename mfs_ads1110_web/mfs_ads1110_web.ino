@@ -37,7 +37,7 @@ File dataFile;
 bool recording = false;
 unsigned long startTime = 0;
 unsigned long previousMillis = 0;
-const unsigned long interval = 124;  // 数据更新间隔（1秒 ：1000）
+const unsigned long interval = 125;  // 数据更新间隔（1秒 ：1000）
 
 // 最新数据
 float lastVoltage = 0.0;
@@ -334,10 +334,13 @@ bool createNewDataFile() {
 
     // 写入CSV头
     if (dataFile.size() == 0) {
-        dataFile.println("Timestamp,Voltage(mV),Duration(s)");
+        dataFile.println("Timestamp,Voltage(mV),Duration(ms)");
         dataFile.flush();
     }
 
+    // 重置开始时间
+    startTime = millis();
+    
     Serial.println("File created and opened successfully for recording.");
     lastRecordedFile = String(fileName);
     return true;
@@ -492,7 +495,7 @@ void handleStart() {
     if (!recording) {
         if (createNewDataFile()) {
             recording = true;
-            startTime = millis();
+            startTime = millis();  // 只在这里设置
             // 更新屏幕按钮
             clearButtonArea(START_BTN_X, BUTTON_AREA_Y);
             drawStopButton();
@@ -608,11 +611,12 @@ void handleDownload() {
 
 // 修改recordData函数
 void recordData(float voltage) {
-    if (!recording || !sdCardReady || !dataFile) {
-        return;
-    }
+    if (!recording || !sdCardReady || !dataFile) return;
 
-    unsigned long duration = (millis() - startTime) / 1000;
+    unsigned long currentMillis = millis();
+    unsigned long duration_ms = currentMillis - startTime;
+
+    // 获取当前时间
     M5.Rtc.GetTime(&RTCtime);
     M5.Rtc.GetDate(&RTCdate);
     
@@ -620,15 +624,15 @@ void recordData(float voltage) {
     sprintf(str_buffer, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
             RTCdate.Year, RTCdate.Month, RTCdate.Date,
             RTCtime.Hours, RTCtime.Minutes, RTCtime.Seconds,
-            millis() % 1000);
+            currentMillis % 1000);
     
     // 更新最新数据
     lastVoltage = voltage;
     lastTimestamp = String(str_buffer);
-    lastDuration = duration;
+    lastDuration = duration_ms;
 
     // 直接写入数据到文件，不使用缓冲区
-    String dataString = String(str_buffer) + "," + String(voltage, 6) + "," + String(duration) + "\n";
+    String dataString = String(str_buffer) + "," + String(voltage, 6) + "," + String(duration_ms) + "\n";
     if (dataFile) {
         if (dataFile.print(dataString)) {
             dataFile.flush();  // 立即写入到SD卡

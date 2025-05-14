@@ -22,6 +22,11 @@ recordings/
 logs/
 *.csv
 
+# 数据文件
+data/
+*.csv
+*.lvm
+
 # IDE配置文件
 .vscode/
 .idea/
